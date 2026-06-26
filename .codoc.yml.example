@@ -1,0 +1,29 @@
+# Codebase Onboarding Doc Configuration
+# Copy to .codoc.yml and customize
+
+llm:
+  provider: openai          # openai, anthropic, glm, ollama
+  model: gpt-4o
+  api_key: ${LLM_API_KEY}   # or set CODOC_LLM_API_KEY env var
+  # base_url: https://api.openai.com/v1
+  temperature: 0.3
+  max_tokens: 4096
+
+analysis:
+  git_depth: 500              # number of commits to analyze
+  focus_dirs: []              # directories to focus on (empty = all)
+  ignore_dirs:                # directories to ignore
+    - "vendor/"
+    - "node_modules/"
+    - ".venv/"
+    - "__pycache__/"
+  detect_todos: true
+  detect_hacks: true
+  detect_legacy: true
+  detect_security_changes: true
+
+output:
+  format: markdown            # markdown, html, json
+  include_code_snippets: true
+  include_commit_links: true
+  max_sections: 20

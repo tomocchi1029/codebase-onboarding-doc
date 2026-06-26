@@ -1,0 +1,70 @@
+name: Generate Onboarding Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "lib/**"
+      - "app/**"
+  workflow_dispatch:
+    inputs:
+      focus_dirs:
+        description: "Comma-separated directories to focus on"
+        required: false
+        default: ""
+
+jobs:
+  generate-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Codebase Onboarding Doc
+        run: pip install codebase-onboarding-doc
+
+      - name: Generate onboarding documentation
+        env:
+          CODOC_LLM_PROVIDER: ${{ vars.CODOC_LLM_PROVIDER || 'openai' }}
+          CODOC_LLM_MODEL: ${{ vars.CODOC_LLM_MODEL || 'gpt-4o' }}
+          CODOC_LLM_API_KEY: ${{ secrets.CODOC_LLM_API_KEY }}
+        run: |
+          FOCUS="${{ inputs.focus_dirs }}"
+          if [ -n "$FOCUS" ]; then
+            FOCUS_ARGS=""
+            IFS=',' read -ra DIRS <<< "$FOCUS"
+            for dir in "${DIRS[@]}"; do
+              FOCUS_ARGS="$FOCUS_ARGS --focus $dir"
+            done
+            codoc generate --repo . $FOCUS_ARGS -o docs/onboarding.md --format markdown
+          else
+            codoc generate --repo . -o docs/onboarding.md --format markdown
+          fi
+
+      - name: Commit documentation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/onboarding.md
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "docs: auto-update onboarding documentation"
+            git push
+          fi
+
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboarding-doc
+          path: docs/onboarding.md
+          retention-days: 30

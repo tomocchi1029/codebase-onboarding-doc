@@ -10,6 +10,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from .config import Config
 from .formatters import generate_html, generate_json, generate_markdown
 from .generator import OnboardingGenerator
 from .llm_client import LLMClient, LLMConfig
@@ -34,10 +35,11 @@ def cli(verbose: bool) -> None:
 @click.option("--repo", "-r", default=".", help="Path to the git repository")
 @click.option("--output", "-o", default="docs/onboarding.md", help="Output file path")
 @click.option("--format", "-f", "output_format", type=click.Choice(["markdown", "json", "html"]), default="markdown", help="Output format")
-@click.option("--depth", "-d", default=500, type=int, help="Number of commits to analyze")
+@click.option("--config", "-c", default=None, help="Path to .codoc.yml config file")
+@click.option("--depth", "-d", default=None, type=int, help="Number of commits to analyze (overrides config)")
 @click.option("--focus", multiple=True, help="Directories to focus on")
 @click.option("--ignore", multiple=True, help="Directories to ignore")
-@click.option("--max-sections", default=20, type=int, help="Maximum number of sections in the doc")
+@click.option("--max-sections", default=None, type=int, help="Maximum number of sections in the doc")
 @click.option("--provider", envvar="CODOC_LLM_PROVIDER", default="openai", help="LLM provider")
 @click.option("--model", envvar="CODOC_LLM_MODEL", default="gpt-4o", help="LLM model name")
 @click.option("--api-key", envvar="CODOC_LLM_API_KEY", help="LLM API key")
@@ -46,16 +48,24 @@ def generate(
     repo: str,
     output: str,
     output_format: str,
-    depth: int,
+    config: str | None,
+    depth: int | None,
     focus: tuple[str, ...],
     ignore: tuple[str, ...],
-    max_sections: int,
+    max_sections: int | None,
     provider: str,
     model: str,
     api_key: str | None,
     base_url: str | None,
 ) -> None:
     """Generate an onboarding document for a codebase."""
+    # Load config
+    cfg = Config.from_file(config) if config else Config.from_env()
+    _depth = depth if depth is not None else cfg.git_depth
+    _max_sections = max_sections if max_sections is not None else cfg.max_sections
+    _focus = list(focus) if focus else cfg.focus_dirs
+    _ignore = list(ignore) if ignore else cfg.ignore_dirs
+
     repo_path = Path(repo).resolve()
     if not repo_path.exists():
         console.print(f"[red]Error: Repository path not found: {repo}[/red]")
@@ -63,14 +73,19 @@ def generate(
 
     console.print(f"[bold blue]Analyzing codebase:[/bold blue] {repo_path}")
 
-    # Configure LLM
-    config = LLMConfig(
-        provider=provider,
-        model=model,
-        api_key=api_key or "",
-        base_url=base_url or "",
+    # Configure LLM (CLI args override config)
+    llm_cfg = cfg.llm_config
+    _provider = provider if provider != "openai" else llm_cfg.provider
+    _model = model if model != "gpt-4o" else llm_cfg.model
+    _api_key = api_key or llm_cfg.api_key
+    _base_url = base_url or llm_cfg.base_url
+    llm_config = LLMConfig(
+        provider=_provider,
+        model=_model,
+        api_key=_api_key,
+        base_url=_base_url,
     )
-    llm = LLMClient(config)
+    llm = LLMClient(llm_config)
     generator = OnboardingGenerator(llm)
 
     console.print("  Mining git history...")
@@ -80,10 +95,10 @@ def generate(
     try:
         doc = generator.generate(
             repo_path=str(repo_path),
-            git_depth=depth,
-            focus_dirs=list(focus) if focus else None,
-            ignore_dirs=list(ignore) if ignore else None,
-            max_sections=max_sections,
+            git_depth=_depth,
+            focus_dirs=_focus or None,
+            ignore_dirs=_ignore or None,
+            max_sections=_max_sections,
         )
     except Exception as e:
         console.print(f"[red]✗ Generation failed: {e}[/red]")
